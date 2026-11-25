@@ -3,7 +3,6 @@
 ## Part 1: Localhost vs Production
 
 ### Exercise 1.1: Anti-patterns found
-### Exercise 1.1
 1. Dòng 17–18 — Hardcode thông tin nhạy cảm (`OPENAI_API_KEY` và `DATABASE_URL` chứa mật khẩu) trực tiếp trong mã nguồn. Khi push lên GitHub, ai cũng có thể đọc được; kẻ xấu sẽ đánh cắp API key để gọi dịch vụ tính tiền vào tài khoản của mình hoặc truy cập trái phép vào cơ sở dữ liệu.
 2. Dòng 21–22 — Cấu hình viết cứng (`DEBUG = True`, `MAX_TOKENS = 500`) thay vì đọc từ biến môi trường. Khi muốn thay đổi cấu hình giữa môi trường dev và production, lập trình viên buộc phải sửa trực tiếp mã nguồn và deploy lại; đồng thời nếu sau này code mở rộng và dùng tới biến `DEBUG`, ứng dụng trên production sẽ mặc định chạy ở chế độ debug.
 3. Dòng 33–38 — Dùng `print()` thay cho thư viện logging chuẩn, đặc biệt tại **dòng 34** lại in thẳng `OPENAI_API_KEY` ra màn hình console (và **dòng 38** in toàn bộ `response` ra log). Trên server thật, log thường được lưu tập trung hoặc gửi ra hệ thống giám sát; việc in secret và nội dung phản hồi vào log làm lộ API key cũng như dữ liệu nhạy cảm của người dùng cho bất kỳ ai có quyền đọc log, đồng thời `print()` thiếu cấp độ log (INFO, ERROR) và timestamp để truy vết sự cố.
@@ -42,7 +41,6 @@ INFO:     127.0.0.1:33622 - "POST /ask?question=Hello HTTP/1.1" 200 OK
 
 **Nhận xét:** App chạy được và trả về 200, nhưng chưa sẵn sàng cho production: API key bị in thẳng ra log (dòng `Using key`), câu hỏi và câu trả lời của người dùng cũng bị ghi nguyên văn, và `reload=True` sinh thêm một tiến trình reloader [1997] chạy song song với server [1999].
 ### Exercise 1.3: Comparison table
-### Exercise 1.3: Comparison table
 
 | Feature | Develop | Production | Tại sao quan trọng? |
 | :--- | :--- | :--- | :--- |
@@ -56,7 +54,6 @@ INFO:     127.0.0.1:33622 - "POST /ask?question=Hello HTTP/1.1" 200 OK
 
 **Quan sát thực tế khi chạy `production/app.py`:**
 Về mặt thiết kế, bản production cấu hình log dạng JSON và ẩn thông tin nhạy cảm/nội dung câu hỏi. Tuy nhiên khi chạy thử nghiệm thực tế, log terminal chỉ xuất hiện các dòng truy cập mặc định của Uvicorn (`INFO: 127.0.0.1:... "POST /ask HTTP/1.1" 200 OK`) mà không có dòng log JSON nào của ứng dụng (như `"event": "startup"` hay `"event": "agent_request"`): nguyên nhân là do `config.py` gọi `logging.warning()` trước khi `app.py` thiết lập `basicConfig`, khiến Python tự khởi tạo logger gốc ở mức `WARNING` với định dạng mặc định (`WARNING:root:...`) và bỏ qua cấu hình định dạng JSON ở mức `INFO` phía sau.
-## Part 2: Docker
 ## Part 2: Docker
 
 ### Exercise 2.1
@@ -456,6 +453,28 @@ Total messages: 10
 
 Lưu ý: script không tự tắt instance nào (khác mô tả trong CODE_LAB), nên bài này chứng minh session dùng chung giữa các instance, chưa chứng minh trường hợp một instance chết giữa chừng.
 ## Part 6: Final Project — check_production_ready.py output
+
+Chạy `python check_production_ready.py` (đầy đủ, có Docker) trong `06-lab-complete/`:
+
+```
+✅ Docker: image < 500 MB — 297 MB
+
+📋 Checklist Deliverable
+     ✅ Dockerfile (multi-stage, < 500 MB)
+     ✅ docker-compose.yml (agent + redis)
+     ✅ .dockerignore
+     ✅ Health check endpoint (GET /health)
+     ✅ Readiness endpoint (GET /ready)
+     ✅ API Key authentication
+     ✅ Rate limiting
+     ✅ Cost guard
+     ✅ Config từ environment variables
+     ✅ Structured logging
+     ✅ Graceful shutdown
+     ✅ Public URL ready (Railway / Render config)
+  Result: 12/12 tiêu chí đạt · 43/43 checks passed
+  🎉 PASS 12/12 — PRODUCTION READY! Deploy nào!
+```
 
 ## AI log
 Công cụ AI đã dùng: **Claude** (trợ lý chính, cả buổi)
