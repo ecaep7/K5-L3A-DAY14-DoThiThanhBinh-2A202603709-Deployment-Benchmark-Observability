@@ -4,15 +4,15 @@
 
 ### Exercise 1.1: Anti-patterns found
 ### Exercise 1.1
-1. Dòng 17–18 — Hardcode thông tin nhạy cảm (`OPENAI_API_KEY` và `DATABASE_URL` chứa mật khẩu) trực tiếp trong mã nguồn. Khi push lên GitHub, ai cũng có thể đọc được; kẻ xấu sẽ đánh cắp API key để gọi dịch vụ tính tiền vào tài khoản của mình hoặc truy cập trái phép vào cơ sở dữ liệu[cite: 1].
-2. Dòng 21–22 — Cấu hình viết cứng (`DEBUG = True`, `MAX_TOKENS = 500`) thay vì đọc từ biến môi trường. Khi muốn thay đổi cấu hình giữa môi trường dev và production, lập trình viên buộc phải sửa trực tiếp mã nguồn và deploy lại; đồng thời nếu sau này code mở rộng và dùng tới biến `DEBUG`, ứng dụng trên production sẽ mặc định chạy ở chế độ debug[cite: 1].
-3. Dòng 33–38 — Dùng `print()` thay cho thư viện logging chuẩn, đặc biệt tại **dòng 34** lại in thẳng `OPENAI_API_KEY` ra màn hình console (và **dòng 38** in toàn bộ `response` ra log)[cite: 1]. Trên server thật, log thường được lưu tập trung hoặc gửi ra hệ thống giám sát; việc in secret và nội dung phản hồi vào log làm lộ API key cũng như dữ liệu nhạy cảm của người dùng cho bất kỳ ai có quyền đọc log, đồng thời `print()` thiếu cấp độ log (INFO, ERROR) và timestamp để truy vết sự cố.
-4. Dòng 42–43 — Thiếu endpoint kiểm tra sức khỏe hệ thống (như `/health` hoặc `/healthz`)[cite: 1]. Khi chạy trên các nền tảng cloud/container (như Kubernetes, Render, Railway), hệ thống không có tín hiệu để biết ứng dụng đang hoạt động bình thường hay đã treo/crash để tự động khởi động lại (auto-restart) hoặc điều hướng traffic sang instance khác.
-5. Dòng 49–53 — Cấu hình server chạy cứng cho môi trường local thay vì đọc từ biến môi trường[cite: 1]:
-   - `host="localhost"` (dòng 51): Chỉ lắng nghe kết nối nội bộ từ chính máy chủ đó, khiến người dùng bên ngoài hoặc reverse proxy của cloud platform không thể truy cập được ứng dụng[cite: 1].
-   - `port=8000` (dòng 52): Không đọc biến `PORT` do các nền tảng như Railway/Render tự động cấp phát, dẫn đến lỗi không bind được cổng và deploy thất bại[cite: 1].
-   - `reload=True` (dòng 53): Chạy thêm một tiến trình giám sát thay đổi của file gây tốn tài nguyên hệ thống, và mỗi khi có file thay đổi, server tự khởi động lại làm rơi toàn bộ các request đang xử lý dở[cite: 1].
-6. Dòng 47–53 — Khối khởi chạy server không có cơ chế tắt an toàn (graceful shutdown) và không xử lý tín hiệu dừng từ hệ điều hành (`SIGTERM`)[cite: 1]. Khi cloud platform dừng container hoặc deploy phiên bản mới, ứng dụng bị ngắt đột ngột khiến các request đang xử lý dở bị cắt ngang và có thể gây mất mát hoặc sai lệch dữ liệu.
+1. Dòng 17–18 — Hardcode thông tin nhạy cảm (`OPENAI_API_KEY` và `DATABASE_URL` chứa mật khẩu) trực tiếp trong mã nguồn. Khi push lên GitHub, ai cũng có thể đọc được; kẻ xấu sẽ đánh cắp API key để gọi dịch vụ tính tiền vào tài khoản của mình hoặc truy cập trái phép vào cơ sở dữ liệu.
+2. Dòng 21–22 — Cấu hình viết cứng (`DEBUG = True`, `MAX_TOKENS = 500`) thay vì đọc từ biến môi trường. Khi muốn thay đổi cấu hình giữa môi trường dev và production, lập trình viên buộc phải sửa trực tiếp mã nguồn và deploy lại; đồng thời nếu sau này code mở rộng và dùng tới biến `DEBUG`, ứng dụng trên production sẽ mặc định chạy ở chế độ debug.
+3. Dòng 33–38 — Dùng `print()` thay cho thư viện logging chuẩn, đặc biệt tại **dòng 34** lại in thẳng `OPENAI_API_KEY` ra màn hình console (và **dòng 38** in toàn bộ `response` ra log). Trên server thật, log thường được lưu tập trung hoặc gửi ra hệ thống giám sát; việc in secret và nội dung phản hồi vào log làm lộ API key cũng như dữ liệu nhạy cảm của người dùng cho bất kỳ ai có quyền đọc log, đồng thời `print()` thiếu cấp độ log (INFO, ERROR) và timestamp để truy vết sự cố.
+4. Dòng 42–43 — Thiếu endpoint kiểm tra sức khỏe hệ thống (như `/health` hoặc `/healthz`). Khi chạy trên các nền tảng cloud/container (như Kubernetes, Render, Railway), hệ thống không có tín hiệu để biết ứng dụng đang hoạt động bình thường hay đã treo/crash để tự động khởi động lại (auto-restart) hoặc điều hướng traffic sang instance khác.
+5. Dòng 49–53 — Cấu hình server chạy cứng cho môi trường local thay vì đọc từ biến môi trường:
+   - `host="localhost"` (dòng 51): Chỉ lắng nghe kết nối nội bộ từ chính máy chủ đó, khiến người dùng bên ngoài hoặc reverse proxy của cloud platform không thể truy cập được ứng dụng.
+   - `port=8000` (dòng 52): Không đọc biến `PORT` do các nền tảng như Railway/Render tự động cấp phát, dẫn đến lỗi không bind được cổng và deploy thất bại.
+   - `reload=True` (dòng 53): Chạy thêm một tiến trình giám sát thay đổi của file gây tốn tài nguyên hệ thống, và mỗi khi có file thay đổi, server tự khởi động lại làm rơi toàn bộ các request đang xử lý dở.
+6. Dòng 47–53 — Khối khởi chạy server không có cơ chế tắt an toàn (graceful shutdown) và không xử lý tín hiệu dừng từ hệ điều hành (`SIGTERM`). Khi cloud platform dừng container hoặc deploy phiên bản mới, ứng dụng bị ngắt đột ngột khiến các request đang xử lý dở bị cắt ngang và có thể gây mất mát hoặc sai lệch dữ liệu.
 
 ### Exercise 1.2: Kết quả chạy bản develop
 Lệnh gọi (terminal B):
@@ -55,7 +55,7 @@ INFO:     127.0.0.1:33622 - "POST /ask?question=Hello HTTP/1.1" 200 OK
 | Reload | `reload=True` luôn bật, có tiến trình reloader | Chỉ bật khi `DEBUG=true` (dòng 198), chỉ 1 tiến trình | Tắt reload trên production giúp tiết kiệm CPU/RAM do không phải chạy thêm tiến trình theo dõi thay đổi file, đồng thời tránh việc server tự khởi động lại bất ngờ làm rớt các kết nối đang chạy. |
 
 **Quan sát thực tế khi chạy `production/app.py`:**
-Về mặt thiết kế, bản production cấu hình log dạng JSON và ẩn thông tin nhạy cảm/nội dung câu hỏi. Tuy nhiên khi chạy thử nghiệm thực tế, log terminal chỉ xuất hiện các dòng truy cập mặc định của Uvicorn (`INFO: 127.0.0.1:... "POST /ask HTTP/1.1" 200 OK`) mà không có dòng log JSON nào của ứng dụng (như `"event": "startup"` hay `"event": "agent_request"`): nguyên nhân là do `config.py` gọi `logging.warning()` trước khi `app.py` thiết lập `basicConfig`, khiến Python tự khởi tạo logger gốc ở mức `WARNING` với định dạng mặc định (`WARNING:root:...`) và bỏ qua cấu hình định dạng JSON ở mức `INFO` phía sau[cite: 2, 3].
+Về mặt thiết kế, bản production cấu hình log dạng JSON và ẩn thông tin nhạy cảm/nội dung câu hỏi. Tuy nhiên khi chạy thử nghiệm thực tế, log terminal chỉ xuất hiện các dòng truy cập mặc định của Uvicorn (`INFO: 127.0.0.1:... "POST /ask HTTP/1.1" 200 OK`) mà không có dòng log JSON nào của ứng dụng (như `"event": "startup"` hay `"event": "agent_request"`): nguyên nhân là do `config.py` gọi `logging.warning()` trước khi `app.py` thiết lập `basicConfig`, khiến Python tự khởi tạo logger gốc ở mức `WARNING` với định dạng mặc định (`WARNING:root:...`) và bỏ qua cấu hình định dạng JSON ở mức `INFO` phía sau.
 ## Part 2: Docker
 ## Part 2: Docker
 
@@ -78,7 +78,7 @@ Về mặt thiết kế, bản production cấu hình log dạng JSON và ẩn t
 
 4. **`CMD` khác `ENTRYPOINT` thế nào?**
    * **`ENTRYPOINT`** quy định tiến trình chính cố định mà container sẽ luôn thực thi khi khởi động (giống phần **đường dẫn chương trình gốc** trong một shortcut trên Windows, ví dụ `python`). Nếu muốn đổi `ENTRYPOINT` lúc chạy, người dùng phải truyền cờ tường minh `--entrypoint`.
-   * **`CMD`** đóng vai trò cung cấp lệnh mặc định hoặc bộ tham số mặc định truyền vào cho `ENTRYPOINT` (giống phần **tham số mặc định** đằng sau tên chương trình trong shortcut). `CMD` rất linh hoạt: nếu bạn chạy `docker run agent-develop`, container sẽ chạy lệnh mặc định `python app.py` (dòng 26); nhưng nếu bạn truyền thêm lệnh ở cuối như `docker run agent-develop bash` hoặc `docker run agent-develop python test.py`, toàn bộ phần `CMD` mặc định sẽ bị ghi đè bởi lệnh mới đó[cite: 4].
+   * **`CMD`** đóng vai trò cung cấp lệnh mặc định hoặc bộ tham số mặc định truyền vào cho `ENTRYPOINT` (giống phần **tham số mặc định** đằng sau tên chương trình trong shortcut). `CMD` rất linh hoạt: nếu bạn chạy `docker run agent-develop`, container sẽ chạy lệnh mặc định `python app.py` (dòng 26); nhưng nếu bạn truyền thêm lệnh ở cuối như `docker run agent-develop bash` hoặc `docker run agent-develop python test.py`, toàn bộ phần `CMD` mặc định sẽ bị ghi đè bởi lệnh mới đó.
 ### Exercise 2.2: Build và run
 
 Lệnh (chạy từ gốc repo):
@@ -458,3 +458,14 @@ Lưu ý: script không tự tắt instance nào (khác mô tả trong CODE_LAB),
 ## Part 6: Final Project — check_production_ready.py output
 
 ## AI log
+Công cụ AI đã dùng: **Claude** (trợ lý chính, cả buổi) và **<TÊN CÔNG CỤ>** (hỗ trợ diễn đạt một số câu trả lời Part 1–2).
+
+| Phần | Đã nhờ AI làm gì | Tôi tự làm / tự kiểm tra |
+|---|---|---|
+| Setup | Claude hướng dẫn WSL2, Docker Desktop WSL integration, tạo venv Python 3.12 bằng `uv` (đề ghim `pydantic==2.9.0` không có wheel cho Python 3.14) | Tự chạy lệnh, tự fork/clone repo |
+| Part 1 | Claude góp ý danh sách anti-pattern (sửa số dòng, bỏ ý chưa đúng về `DEBUG`), giải thích lỗi logging bị nuốt và `.env` không được nạp| Tự tìm anti-pattern, tự chạy app, đối chiếu với log thật |
+| Part 2 | Claude hướng dẫn build/đo image, chép output sang markdown, dựng sơ đồ Mermaid, chỉ ra HEALTHCHECK không tự restart| Tự build, tự đo kích thước image, kiểm tra sơ đồ với `docker-compose.yml` |
+| Part 4–5 | Claude giải thích JWT, sliding window, thứ tự log khi graceful shutdown; soạn câu trả lời từ output của tôi | Tự chạy mọi lệnh curl/vòng lặp 429, tự test SIGTERM, scale 3 instance |
+| Part 6 | Claude viết code 12 file trong `06-lab-complete/` và kiểm tra với `check_production_ready.py` trước khi gửi; giải thích từng file | Tự chạy script chấm trên máy (PASS 12/12), đọc lại code |
+| Part 3 / CP6 | Claude hướng dẫn Railway CLI; thao tác dashboard Railway| Tự tạo và dán `AGENT_API_KEY` (Claude không nhập key), tự chạy 4 lệnh kiểm tra |
+| Part 7 | Claude viết script chạy load test/eval/stack observability, phát hiện lỗi `PYTHONUSERBASE` trong Dockerfile và lỗi `--no-deps` của lệnh Locust, soạn nhận xét báo cáo từ số liệu của tôi; tạo tải và tìm trace trong Jaeger | Tự chạy script trên máy, mọi số liệu lấy từ JSON/CSV tôi chạy ra, tự chụp ảnh |
