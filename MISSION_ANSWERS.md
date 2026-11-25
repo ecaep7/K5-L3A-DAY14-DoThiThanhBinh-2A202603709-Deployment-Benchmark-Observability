@@ -158,8 +158,35 @@ flowchart LR
 ```
 
 **Services được start:**
-## Part 3: Cloud Deployment
 
+## Part 3: Cloud Deployment
+### Exercise 3.1: Railway deployment (agent Part 6)
+- URL: https://k5-l3a-day14-dothithanhbinh-2a202603709-deployme-production.up.railway.app
+- Deploy bằng Railway CLI từ `06-lab-complete/` (`railway link` → `railway up`), thêm Redis trong cùng project, đặt `AGENT_API_KEY`, `REDIS_URL=${{Redis.REDIS_URL}}`, `ENVIRONMENT=production` trên dashboard, tạo domain public.
+- Kiểm tra 4 lệnh CP6: `/health` 200, `/ready` 200, `/ask` không key 401, có key 200 (ảnh `screenshots/test.png`).
+- Sự cố gặp phải:
+  - Railway tự deploy cả repo từ GitHub → build bằng Dockerfile Go ở gốc repo → lỗi `go build`. Sửa: deploy đúng thư mục `06-lab-complete/` bằng CLI và ngắt kết nối GitHub của service.
+  - Biến môi trường bị thêm nhầm vào service Redis, ghi đè `REDIS_URL` của Redis thành tham chiếu tự trỏ vào chính nó → agent nhận URL rỗng và crash (`Redis URL must specify one of the following schemes`). Sửa: chuyển biến sang service agent, khôi phục `REDIS_URL` của Redis về `redis://default:${{REDIS_PASSWORD}}@${{REDISHOST}}:${{REDISPORT}}`.
+
+### Exercise 3.2: So sánh `railway.toml` và `render.yaml`
+| | `railway.toml` | `render.yaml` |
+|---|---|---|
+| Phạm vi | Cấu hình **một service**: cách build và deploy | **Blueprint** cho cả hạ tầng: khai báo nhiều service (web + Key Value/Redis) trong một file |
+| Build | `builder = "DOCKERFILE"` | `runtime: docker`, `dockerfilePath` |
+| Health check | `healthcheckPath = "/health"` | `healthCheckPath: /health` |
+| Redis | Không khai báo trong file; thêm service Redis trên dashboard rồi tham chiếu `${{Redis.REDIS_URL}}` | Khai báo service `keyvalue` ngay trong file, nối bằng `fromService` (`property: connectionString`) |
+| Secret | Đặt trên dashboard/CLI, file không chứa secret | `sync: false` (điền tay trên dashboard) hoặc `generateValue: true`; không ghi thẳng giá trị |
+| Restart | `restartPolicyType = "ON_FAILURE"` | Render tự quản lý |
+
+Khác nhau chính: Railway tách cấu hình build/deploy (file) khỏi hạ tầng (dashboard), còn Render mô tả toàn bộ hạ tầng như code trong một Blueprint, nên dựng lại môi trường dễ hơn nhưng file phải nằm đúng chỗ Render tìm (ở repo này `render.yaml` nằm trong thư mục con, phải chỉ đường dẫn khi tạo Blueprint).
+
+### Exercise 3.3: Cloud Run CI/CD (chỉ đọc, không deploy)
+`cloudbuild.yaml` mô tả pipeline 4 bước chạy tuần tự (`waitFor`) khi push lên `main`:
+1. **test** — dùng `python:3.11-slim`, cài requirements và chạy `pytest`; test fail thì dừng toàn bộ pipeline.
+2. **build** — build Docker image, gắn 2 tag `$COMMIT_SHA` và `latest`, dùng `--cache-from latest` để tận dụng layer cache.
+3. **push** — đẩy image lên Container Registry.
+4. **deploy** — `gcloud run deploy` image theo đúng `$COMMIT_SHA` lên region `asia-southeast1`, min 1 / max 10 instance, secret lấy từ Secret Manager (`--set-secrets`) thay vì ghi trong code.
+`service.yaml` là cấu hình Knative tương ứng: autoscaling 1–10 instance, mỗi instance tối đa 80 request đồng thời, `livenessProbe` gọi `/health`, `startupProbe` gọi `/ready`, `AGENT_API_KEY` và `OPENAI_API_KEY` đọc từ `secretKeyRef`.
 ## Part 4: API Security
 ### Exercise 4.1: API Key authentication (bản develop)
 
