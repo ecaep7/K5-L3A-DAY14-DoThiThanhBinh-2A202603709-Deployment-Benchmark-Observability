@@ -458,7 +458,7 @@ Lưu ý: script không tự tắt instance nào (khác mô tả trong CODE_LAB),
 ## Part 6: Final Project — check_production_ready.py output
 
 ## AI log
-Công cụ AI đã dùng: **Claude** (trợ lý chính, cả buổi) và **<TÊN CÔNG CỤ>** (hỗ trợ diễn đạt một số câu trả lời Part 1–2).
+Công cụ AI đã dùng: **Claude** (trợ lý chính, cả buổi)
 
 | Phần | Đã nhờ AI làm gì | Tôi tự làm / tự kiểm tra |
 |---|---|---|
