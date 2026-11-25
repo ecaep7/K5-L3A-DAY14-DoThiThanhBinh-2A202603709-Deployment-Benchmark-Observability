@@ -287,7 +287,147 @@ Bản ghi có trường `day`; sang ngày mới thì `_get_record` tạo bản g
 
 **Vì sao cần cả rate limit lẫn cost guard:** rate limit bảo vệ **tốc độ** (chống spam, chống quá tải), cost guard bảo vệ **tiền**. Một user gọi đúng 10 request/phút nhưng mỗi câu hỏi rất dài vẫn có thể tiêu hết ngân sách mà không hề chạm rate limit; ngược lại cost guard không chặn được hàng nghìn request rẻ làm nghẽn server.
 ## Part 5: Scaling & Reliability
+### Exercise 5.1: Health checks
 
+Chạy `python app.py` trong `05-scaling-reliability/develop/` (endpoint đã có sẵn, dòng 104–168).
+
+```
+$ curl -i http://localhost:8000/health
+HTTP/1.1 200 OK
+{"status":"ok","uptime_seconds":15.8,"version":"1.0.0","environment":"development","timestamp":"2026-11-25T08:55:14.634277+00:00","checks":{"memory":{"status":"ok","used_percent":10.6}}}
+
+$ curl -i http://localhost:8000/ready
+HTTP/1.1 200 OK
+{"ready":true,"in_flight_requests":1}
+```
+
+**Liveness (`/health`) khác readiness (`/ready`) ở đâu:**
+- `/health` trả lời "process còn sống không?". Platform gọi định kỳ; không trả 200 hoặc timeout thì platform **restart** container. Endpoint này chỉ nên kiểm tra bản thân process (ở đây: uptime, mức dùng RAM qua `psutil`), không nên phụ thuộc dịch vụ ngoài: nếu Redis chết mà `/health` cũng fail thì platform restart agent liên tục mà không giải quyết được gì.
+- `/ready` trả lời "đã sẵn sàng nhận traffic chưa?". Load balancer dùng để quyết định có **chuyển request vào** instance này không. Trả 503 khi đang khởi động, đang tắt (`_is_ready = False`, dòng 55) hoặc khi dependency như Redis/DB chưa kết nối được. Instance chỉ bị rút khỏi vòng phục vụ chứ không bị restart.
+- `in_flight_requests: 1` là chính request `/ready` đang được xử lý, vì middleware (dòng 72–81) đếm mọi request, kể cả request kiểm tra.
+
+### Exercise 5.2: Graceful shutdown
+
+Gửi một request `/ask` (mock LLM trễ ~3 giây), sau 1 giây gửi SIGTERM cho server:
+
+```
+$ PID=$(pgrep -f "python app.py")
+$ curl -s -w "\nHTTP %{http_code}\n" -X POST "http://localhost:8000/ask?question=Long%20task" &
+$ sleep 1
+$ kill -TERM $PID
+$ wait
+{"answer":"Agent đang hoạt động tốt! (mock response) Hỏi thêm câu hỏi đi nhé."}
+HTTP 200
+```
+
+Log server:
+
+```
+INFO:     Shutting down
+INFO:     127.0.0.1:41540 - "POST /ask?question=Long%20task HTTP/1.1" 200 OK
+INFO:     Waiting for application shutdown.
+2026-11-25 08:55:37,566 INFO 🔄 Graceful shutdown initiated...
+2026-11-25 08:55:37,566 INFO ✅ Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [3443]
+2026-11-25 08:55:37,567 INFO Received signal 15 — uvicorn will handle graceful shutdown
+```
+
+**Kết quả:** request đang chạy dở **hoàn thành với 200** dù server đã nhận SIGTERM, không bị cắt ngang.
+
+**Phân tích thứ tự log:**
+1. Uvicorn nhận SIGTERM → ngừng nhận request mới (`Shutting down`).
+2. Uvicorn chờ request `/ask` đang chạy xong (tối đa `timeout_graceful_shutdown=30`, dòng 198).
+3. Sau đó mới gọi phần shutdown của `lifespan` (dòng 54–66): đặt `_is_ready = False` để `/ready` trả 503 và chờ request còn lại. Vì uvicorn đã chờ xong ở bước 2, `_in_flight_requests` lúc này bằng 0 nên vòng lặp chờ (dòng 61–64) không chạy lần nào.
+4. `handle_sigterm` (dòng 175–183) in log **cuối cùng**, sau khi server đã tắt: uvicorn tạm thay signal handler riêng trong lúc chạy, tự xử lý tắt xong mới chuyển tín hiệu lại cho handler cũ. Nghĩa là phần "tắt an toàn" thực sự do uvicorn + `lifespan` đảm nhận; handler tự viết chỉ để ghi log.
+
+Nếu không có graceful shutdown (ví dụ bị `SIGKILL`, hoặc app không chờ), request đang xử lý sẽ bị cắt và client nhận lỗi kết nối, đúng lúc deploy bản mới.
+
+### Exercise 5.3: Stateless design
+
+**Vì sao state trong RAM hỏng khi chạy nhiều instance:** mỗi instance là một process riêng với bộ nhớ riêng. Nếu lưu `conversation_history = {}` trong RAM, request 1 của user vào instance A thì history nằm ở A; request 2 bị load balancer chuyển sang instance B thì B không thấy gì, conversation bị mất. Restart hay deploy lại cũng làm mất toàn bộ state.
+
+**Cách bản production làm (`05-scaling-reliability/production/app.py`):**
+- Session lưu trong Redis với key `session:{session_id}` và TTL 1 giờ (`save_session`, dòng 59–65; `load_session`, dòng 68–73). Instance nào cũng đọc/ghi cùng một chỗ.
+- Mỗi response trả `served_by: INSTANCE_ID` (dòng 155) để thấy request nào do instance nào xử lý.
+- `/ready` ping Redis, mất Redis thì trả 503 (dòng 208–215).
+
+**Điểm cần lưu ý trong code mẫu:**
+- Nếu không kết nối được Redis lúc khởi động, app **lặng lẽ chuyển sang lưu trong RAM** (dòng 42–45) và vẫn chạy bình thường. Khi đó chạy nhiều instance sẽ mất session mà không báo lỗi rõ ràng; production nên fail hẳn (hoặc `/ready` trả 503) thay vì fallback âm thầm.
+- `append_to_history` (dòng 76–90) đọc session, sửa trong Python rồi ghi đè lại. Hai request cùng session đến hai instance cùng lúc có thể ghi đè lên nhau làm mất một message. Dùng cấu trúc list của Redis (`RPUSH` + `LTRIM`) thì mỗi lần thêm là một thao tác nguyên tử.
+
+### Exercise 5.4: Load balancing
+
+Chạy trong `05-scaling-reliability/production/`:
+
+```
+touch .env.local
+docker compose -p k5-day14-scaling up -d --build --scale agent=3
+docker compose -p k5-day14-scaling ps
+```
+
+```
+NAME                      IMAGE                    SERVICE   STATUS                            PORTS
+k5-day14-scaling-agent-1  k5-day14-scaling-agent   agent     Up 5 seconds (health: starting)   8000/tcp
+k5-day14-scaling-agent-2  k5-day14-scaling-agent   agent     Up 4 seconds (health: starting)   8000/tcp
+k5-day14-scaling-agent-3  k5-day14-scaling-agent   agent     Up 5 seconds (health: starting)   8000/tcp
+k5-day14-scaling-nginx-1  nginx:alpine             nginx     Up 4 seconds                      0.0.0.0:8080->80/tcp
+k5-day14-scaling-redis-1  redis:7-alpine           redis     Up 16 seconds (healthy)           6379/tcp
+```
+
+Gửi 10 request qua Nginx (cổng 8080, endpoint `/chat`), in ra instance xử lý:
+
+```
+Request 1 -> instance-3b9c78
+Request 2 -> instance-94280c
+Request 3 -> instance-e3d336
+Request 4 -> instance-3b9c78
+Request 5 -> instance-94280c
+Request 6 -> instance-e3d336
+Request 7 -> instance-3b9c78
+Request 8 -> instance-94280c
+Request 9 -> instance-e3d336
+Request 10 -> instance-3b9c78
+```
+
+Log (`docker compose -p k5-day14-scaling logs agent | grep "POST /chat"`): agent-1 nhận 4 request, agent-2 và agent-3 mỗi container 3 request.
+
+**Nhận xét:**
+- Nginx phân tán request theo **round-robin** (mặc định của `upstream`): 3 instance lần lượt nhận request theo vòng lặp cố định.
+- Trong `nginx.conf` chỉ khai báo một dòng `server agent:8000;`. DNS nội bộ của Docker trả về IP của cả 3 container agent cho tên `agent`, Nginx đưa cả 3 vào nhóm upstream rồi chia đều.
+- Mỗi container luôn nhận request từ cùng một cổng nguồn của Nginx (ví dụ agent-1 luôn `:40294`) vì `keepalive 16`: Nginx giữ kết nối tới từng agent để dùng lại thay vì mở kết nối mới mỗi request.
+- Nếu một instance chết, `proxy_next_upstream error timeout http_503` + `proxy_next_upstream_tries 3` cho phép Nginx thử chuyển request sang instance khác.
+
+### Exercise 5.5: Test stateless
+
+```
+$ python test_stateless.py
+Session ID: 3e02d47d-6024-44bd-94bf-a869cf47b947
+
+Request 1: [instance-94280c]  Q: What is Docker?
+Request 2: [instance-e3d336]  Q: Why do we need containers?
+Request 3: [instance-3b9c78]  Q: What is Kubernetes?
+Request 4: [instance-94280c]  Q: How does load balancing work?
+Request 5: [instance-e3d336]  Q: What is Redis used for?
+
+Total requests: 5
+Instances used: {'instance-94280c', 'instance-e3d336', 'instance-3b9c78'}
+
+--- Conversation History ---
+Total messages: 10
+  [user]: What is Docker?...
+  [assistant]: Container là cách đóng gói app để chạy ở mọi nơi. Build once...
+  [user]: Why do we need containers?...
+  ...
+  [user]: What is Redis used for?...
+  [assistant]: Đây là câu trả lời từ AI agent (mock). Trong production, đây...
+
+✅ Session history preserved across all instances via Redis!
+```
+
+**Giải thích:** 5 câu hỏi trong cùng một session được **cả 3 instance** xử lý luân phiên, nhưng history vẫn đủ 10 message (5 câu hỏi + 5 câu trả lời) theo đúng thứ tự. Lý do: không instance nào giữ session trong RAM; mỗi request đọc session từ Redis (`session:{session_id}`), thêm message rồi ghi lại. Nếu lưu trong RAM, instance-e3d336 ở request 2 sẽ không thấy câu hỏi 1 mà instance-94280c đã nhận.
+
+Lưu ý: script không tự tắt instance nào (khác mô tả trong CODE_LAB), nên bài này chứng minh session dùng chung giữa các instance, chưa chứng minh trường hợp một instance chết giữa chừng.
 ## Part 6: Final Project — check_production_ready.py output
 
 ## AI log
